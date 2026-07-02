@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>🛵 경상남도 택배의 민족</title>
+    <!-- 배달의민족 공식 서체 느낌을 내기 위한 '주아체'와 '도현체' 적용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Jua&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <style>
+        :root {
+            /* 배달의민족 핵심 컬러 팔레트 완벽 복원 */
+            --baemin-mint: #2ac1bc; 
+            --baemin-black: #222222;
+            --baemin-white: #ffffff;
+            --baemin-gray: #f6f8fa;
+            --baemin-red: #ff5e5e;
+            --baemin-yellow: #ffc107;
+        }
+
+        body, html { 
+            margin: 0; padding: 0; height: 100%; width: 100%; 
+            /* 앱 내부 스크롤을 위해 body의 오버플로우는 숨기되, 내부 요소가 스크롤을 담당합니다 */
+            overflow: hidden; 
+            font-family: 'Nanum Gothic', sans-serif; background-color: var(--baemin-gray); 
+        }
+        
+        /* 앱 화면 컨테이너 */
+        #app { 
+            display: flex; flex-direction: column; height: 100dvh; width: 100%; 
+            background: var(--baemin-gray); position: relative;
+        }
+
+        /* 앱 상단 상태 표시줄 (배민 앱 헤더) */
+        #pda-header {
+            background: var(--baemin-mint); color: var(--baemin-white); padding: 10px 15px; display: flex; justify-content: space-between;
+            align-items: center; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .pda-title { color: var(--baemin-white); font-family: 'Jua', sans-serif; font-size: clamp(1.2rem, 5vw, 1.8rem); letter-spacing: -1px; display: flex; align-items: center; gap: 8px;}
+        
+        .header-right { display: flex; align-items: center; gap: 8px; }
+        .header-btn { 
+            background: var(--baemin-white); color: var(--baemin-mint); border: none; padding: 6px 12px; 
+            border-radius: 20px; cursor: pointer; font-size: clamp(0.9rem, 3vw, 1.1rem); font-family: 'Jua', sans-serif; transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header-btn:active { transform: scale(0.95); }
+
+        /* 지도 영역 */
+        #map { flex: 1; width: 100%; min-height: 0; position: relative; z-index: 1; background-color: #e5e3df; }
+        .leaflet-tile-pane { filter: contrast(1.05) brightness(1.05); }
+
+        /* 힌트 버튼 */
+        #hint-btn { 
+            position: absolute; bottom: 15px; right: 15px; z-index: 1000; padding: 10px 18px; 
+            background: var(--baemin-white); color: var(--baemin-black); border: 3px solid var(--baemin-mint); border-radius: 30px; 
+            font-family: 'Jua', sans-serif; font-size: clamp(1rem, 4vw, 1.3rem); cursor: pointer; 
+            box-shadow: 0 4px 0 var(--baemin-mint); transition: all 0.1s;
+        }
+        #hint-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--baemin-mint); }
+        #hint-btn:disabled { background: #e2e8f0; border-color: #94a3b8; box-shadow: 0 4px 0 #94a3b8; color: #64748b; }
+
+        /* 알림창 */
+        #msg-overlay { 
+            position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%) scale(0.5); 
+            z-index: 20000; padding: 20px 30px; border-radius: 15px; 
+            color: var(--baemin-white); font-family: 'Jua', sans-serif; font-size: clamp(1.8rem, 5vw, 2.5rem); text-align: center; 
+            pointer-events: none; display: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 3px solid rgba(255,255,255,0.9); white-space: pre-line; line-height: 1.2;
+            width: 80%; max-width: 400px;
+        }
+        #msg-overlay.pop { display: block; transform: translate(-50%, -50%) scale(1); opacity: 1; }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+        .shake-anim { animation: shake 0.4s ease-in-out; }
+
+        @keyframes bounce-in {
+            0% { transform: scale(0.3); opacity: 0; }
+            50% { transform: scale(1.1); opacity: 1; }
+            70% { transform: scale(0.9); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .bounce-anim { animation: bounce-in 0.5s forwards; }
+
+        /* 주문서 대시보드 (하단) - 영수증 컨셉 */
+        #dashboard { 
+            background: var(--baemin-white); padding: 15px 20px; 
+            display: flex; flex-direction: column; justify-content: space-between; 
+            border-top: 1px solid #e2e8f0; z-index: 10; position: relative; box-shadow: 0 -5px 15px rgba(0,0,0,0.05);
+            /* 기기 세로 폭에 맞춰 유연하게 반응 */
+            min-height: fit-content;
+        }
+        
+        .waybill-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid var(--baemin-black); padding-bottom: 5px; margin-bottom: 8px;}
+        .receipt-title { font-family: 'Do Hyeon', sans-serif; font-size: clamp(1.2rem, 4vw, 1.5rem); color: var(--baemin-black); }
+        
+        .mission-info { font-size: clamp(1.5rem, 5vw, 2.2rem); font-family: 'Jua', sans-serif; color: var(--baemin-black); display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+        .target-box { color: var(--baemin-white); background: var(--baemin-black); padding: 4px 15px; border-radius: 8px; letter-spacing: 2px; display: inline-block;}
+        
+        .status-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 8px; }
+        #stars-container { font-size: clamp(1.2rem, 4vw, 2rem); display: flex; flex-wrap: wrap; gap: 2px; max-width: 60%; }
+        .timer-display { font-size: clamp(1.5rem, 6vw, 2.2rem); font-family: 'Jua', sans-serif; color: var(--baemin-black); display: flex; align-items: center; gap: 8px; background: #f1f5f9; padding: 5px 12px; border-radius: 10px;}
+        .timer-warning { color: var(--baemin-red) !important; animation: pulse 0.5s infinite; background: #fee2e2 !important; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+
+        /* 오버레이 래퍼 (스크롤 가능 구조로 완벽 개편) */
+        .overlay-wrapper {
+            position: fixed; inset: 0; z-index: 99999;
+            overflow-y: auto; /* 내용이 길면 자유롭게 스크롤 가능 */
+            -webkit-overflow-scrolling: touch; /* iOS 부드러운 스크롤 */
+            display: none;
+        }
+        
+        .overlay-bg-mint { background: var(--baemin-mint); }
+        .overlay-bg-dark { background: rgba(0,0,0,0.6); backdrop-filter: blur(3px); }
+
+        .overlay-inner {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 100%; padding: 40px 20px; box-sizing: border-box; width: 100%;
+        }
+
+        /* 순수 CSS/SVG로 디자인한 로고와 라이더 */
+        .baemin-logo-text {
+            font-family: 'Do Hyeon', sans-serif;
+            font-size: clamp(3rem, 10vw, 4.5rem);
+            color: var(--baemin-black);
+            margin: 0 0 10px 0;
+            line-height: 1;
+            letter-spacing: -2px;
+        }
+        
+        .baemin-rider-svg {
+            width: clamp(120px, 35vw, 180px);
+            height: auto;
+            margin-bottom: 10px;
+            animation: rider-bob 1s ease-in-out infinite alternate;
+        }
+        
+        @keyframes rider-bob {
+            0% { transform: translateY(0) rotate(0deg); }
+            100% { transform: translateY(-8px) rotate(-2deg); }
+        }
+
+        .baemin-sub-text {
+            font-family: 'Jua', sans-serif;
+            font-size: clamp(1.2rem, 4vw, 2rem);
+            color: var(--baemin-black);
+            margin-top: 5px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        /* 반응형 카드 UI (아이패드, 폴드 등) */
+        .instruction-card, .modal-card {
+            background: var(--baemin-white); width: 100%; max-width: 450px; border-radius: 20px; padding: 30px 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15); position: relative; text-align: left;
+            border: 3px solid var(--baemin-black);
+            box-sizing: border-box; /* 패딩 삐져나옴 방지 */
+        }
+        .modal-card { text-align: center; }
+
+        .instruction-card p { font-size: clamp(1rem, 3.5vw, 1.2rem); line-height: 1.5; color: var(--baemin-black); margin: 10px 0; font-family: 'Nanum Gothic', sans-serif; font-weight: 800; }
+        .instruction-card ul { margin: 10px 0 20px 20px; padding: 0; font-size: clamp(0.95rem, 3.5vw, 1.1rem); color: #475569; font-weight: bold; line-height: 1.6; }
+        
+        /* 배민 스타일 버튼 */
+        .btn-black { 
+            padding: 15px 0; width: 100%; font-size: clamp(1.5rem, 5vw, 2rem); border-radius: 12px; border: none; 
+            background: var(--baemin-black); font-family: 'Jua', sans-serif; cursor: pointer; color: var(--baemin-white); 
+            transition: all 0.1s; margin-top: 10px;
+        }
+        .btn-black:active { transform: scale(0.97); }
+
+        .stage-badge { display: inline-block; background: var(--baemin-black); color: var(--baemin-white); padding: 5px 15px; border-radius: 20px; font-size: 1.2rem; font-family: 'Jua', sans-serif; margin-bottom: 10px; }
+        
+        .star { color: #e2e8f0; transition: color 0.3s; }
+        .filled { color: var(--baemin-yellow) !important; text-shadow: 0 0 2px rgba(0,0,0,0.2); }
+        
+        /* 지도 툴팁 */
+        .leaflet-tooltip.hint-style { 
+            background: var(--baemin-black) !important; border: none !important; 
+            color: var(--baemin-white) !important; font-size: 1.1rem !important; font-weight: bold; font-family: 'Jua', sans-serif !important; 
+            visibility: hidden !important; opacity: 0 !important; display: none !important; 
+            border-radius: 30px; padding: 5px 12px; box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        }
+        .leaflet-tooltip.hint-style.show-now { visibility: visible !important; opacity: 1 !important; display: block !important; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 상단 헤더 -->
+        <div id="pda-header">
+            <span class="pda-title">🛵 택민 라이더스</span>
+            <div class="header-right">
+                <button id="sound-btn" class="header-btn" onclick="toggleSound()">🔊 켬</button>
+                <button id="pause-btn" class="header-btn" onclick="togglePause()" disabled>⏸️ 휴식</button>
+            </div>
+        </div>
+
+        <!-- 시작 스플래시 화면 (스크롤 가능 구조) -->
+        <div id="start-overlay" class="overlay-wrapper overlay-bg-mint" style="display: block;">
+            <div class="overlay-inner">
+                <!-- 텍스트로 구현한 배민 스타일 로고 -->
+                <div class="baemin-logo-text">택배의민족</div>
+                
+                <!-- 코드로 직접 그린(SVG) 택민 라이더 캐릭터 -->
+                <svg class="baemin-rider-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                    <!-- 배달통 -->
+                    <rect x="135" y="80" width="55" height="55" rx="8" fill="#2ac1bc" stroke="#222" stroke-width="6" stroke-linejoin="round"/>
+                    <text x="162" y="115" font-family="Jua" font-size="18" fill="#222" text-anchor="middle" font-weight="bold">택민</text>
+                    
+                    <!-- 오토바이 본체 -->
+                    <path d="M 30 150 L 170 150 L 140 100 L 70 100 L 60 70 L 40 70 Z" fill="#2ac1bc" stroke="#222" stroke-width="6" stroke-linejoin="round"/>
+                    <!-- 헤드라이트 -->
+                    <path d="M 40 70 L 25 70 A 5 5 0 0 0 25 85 L 45 85 Z" fill="#ffc107" stroke="#222" stroke-width="5" stroke-linejoin="round"/>
+                    <!-- 핸들 -->
+                    <path d="M 60 70 L 50 50" stroke="#222" stroke-width="6" stroke-linecap="round"/>
+                    
+                    <!-- 바퀴 (앞/뒤) -->
+                    <circle cx="50" cy="150" r="22" fill="#222"/>
+                    <circle cx="50" cy="150" r="10" fill="#fff"/>
+                    <circle cx="150" cy="150" r="22" fill="#222"/>
+                    <circle cx="150" cy="150" r="10" fill="#fff"/>
+                    
+                    <!-- 라이더 몸통 (셔츠) -->
+                    <path d="M 85 100 L 85 65 C 85 55 115 55 115 65 L 115 100 Z" fill="#fff" stroke="#222" stroke-width="6" stroke-linejoin="round"/>
+                    <!-- 팔 -->
+                    <path d="M 85 85 L 60 70" stroke="#222" stroke-width="6" stroke-linecap="round"/>
+                    
+                    <!-- 헬멧과 얼굴 -->
+                    <!-- 얼굴 (살구색) -->
+                    <circle cx="100" cy="40" r="30" fill="#ffe0bd" stroke="#222" stroke-width="6"/>
+                    <!-- 헬멧 (민트색) -->
+                    <path d="M 70 40 A 30 30 0 0 1 130 40 A 35 35 0 0 0 70 40 Z" fill="#2ac1bc" stroke="#222" stroke-width="6" stroke-linejoin="round"/> 
+                    <!-- 안경 (동글이) -->
+                    <circle cx="90" cy="45" r="9" fill="#fff" stroke="#222" stroke-width="4"/>
+                    <circle cx="110" cy="45" r="9" fill="#fff" stroke="#222" stroke-width="4"/>
+                    <line x1="99" y1="45" x2="101" y2="45" stroke="#222" stroke-width="4"/>
+                    <!-- 눈동자 -->
+                    <circle cx="90" cy="45" r="2.5" fill="#222"/>
+                    <circle cx="110" cy="45" r="2.5" fill="#222"/>
+                    <!-- 입 (미소) -->
+                    <path d="M 95 58 Q 100 62 105 58" fill="none" stroke="#222" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+                
+                <p class="baemin-sub-text">경상남도 특급 라이더 모집</p>
+                
+                <div class="instruction-card">
+                    <h2 style="font-family: 'Jua'; font-size: clamp(1.5rem, 5vw, 2rem); color: var(--baemin-black); margin-top: 0; text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px;">🛵 운행 지침서</h2>
+                    <p>1. 하단 영수증에 적힌 <b>배달지(시/군)</b>를 확인하세요.</p>
+                    <p>2. 지도에서 해당 위치를 빠르게 터치하세요!</p>
+                    <p>3. <b>배달 등급별 미션:</b></p>
+                    <ul>
+                        <li><b>[알뜰배달]</b> 15초 제한 / 힌트 3번</li>
+                        <li><b>[한집배달]</b> 10초 제한 / 힌트 2번</li>
+                        <li><b>[번쩍배달]</b> 6초 제한 / 힌트 1번</li>
+                    </ul>
+                    <p style="color: var(--baemin-red); font-size: 0.95rem; text-align: center; margin-bottom: 20px;">* 별점(리뷰)을 채워야 다음 등급으로 승급합니다!</p>
+                    
+                    <button id="start-btn" class="btn-black" onclick="startGame()" disabled>오토바이 시동 거는 중...</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 일시정지 화면 -->
+        <div id="pause-overlay" class="overlay-wrapper overlay-bg-dark">
+            <div class="overlay-inner">
+                <div class="modal-card">
+                    <div style="font-size: clamp(3rem, 10vw, 5rem); margin-bottom: 10px;">☕</div>
+                    <div style="font-size: clamp(2rem, 6vw, 2.5rem); font-family: 'Do Hyeon'; color: var(--baemin-black); margin-bottom: 10px;">라이더 휴식 중</div>
+                    <p style="font-size: clamp(1.1rem, 4vw, 1.3rem); color: #475569; margin-bottom: 30px; font-weight: bold;">오토바이 엔진을 식히고 있습니다.</p>
+                    <button class="btn-black" onclick="togglePause()">배달 다시 시작하기</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="msg-overlay"></div>
+
+        <!-- 결과 화면 -->
+        <div id="result-overlay" class="overlay-wrapper overlay-bg-dark">
+            <div class="overlay-inner">
+                <div class="modal-card">
+                    <div id="res-badge" class="stage-badge">알뜰배달 결과</div>
+                    <div id="res-img" style="font-size: clamp(4rem, 10vw, 5rem); margin-bottom: 5px;" class="bounce-anim">⭐</div>
+                    <div id="res-level" style="font-size: clamp(2.2rem, 7vw, 2.8rem); font-family: 'Do Hyeon'; color: var(--baemin-black); margin-bottom: 10px;">리뷰 정산</div>
+                    <p id="res-score" style="font-size: clamp(1.2rem, 4vw, 1.5rem); font-weight: bold; color: var(--baemin-mint); margin-bottom: 20px;">별점 0점!</p>
+                    <div id="res-message-box" style="background: var(--baemin-gray); padding: 20px; border-radius: 10px; margin-bottom: 25px; font-weight: 700; font-size: clamp(1rem, 4vw, 1.2rem); color: var(--baemin-black);">
+                        <p id="res-message" style="margin:0; line-height: 1.4;">메시지</p>
+                    </div>
+                    <button id="res-action-btn" class="btn-black" onclick="nextStageAction()">다음 버튼</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 지도 영역 -->
+        <div id="map">
+            <button id="hint-btn" onclick="showHint()" disabled>길찾기 찬스 💡</button>
+        </div>
+
+        <!-- 주문서 (대시보드) -->
+        <div id="dashboard">
+            <div class="waybill-header">
+                <span id="waybill-title" class="receipt-title">🧾 주문접수 (알뜰배달)</span>
+                <span style="color: var(--baemin-mint); font-weight: bold; font-family: 'Jua'; font-size: clamp(1rem, 3.5vw, 1.2rem);">택민 라이더스</span>
+            </div>
+            <div class="mission-info">
+                배달지: <span id="target" class="target-box">-</span> 
+                <span id="progress-text" style="font-size: clamp(1rem, 3.5vw, 1.2rem); color: #94a3b8; margin-left: auto; font-family: 'Nanum Gothic'; font-weight: bold;">(1/5)</span>
+            </div>
+            <div class="status-row">
+                <div id="stars-container">
+                    <!-- 별 생성 영역 -->
+                </div>
+                <div class="timer-display" id="timer-box">⏰ <span id="timer">15</span>초</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 경상남도 18개 시군 리스트
+        const gyeongnamCities = [
+            "창원시", "진주시", "통영시", "사천시", "김해시", 
+            "밀양시", "거제시", "양산시", "의령군", "함안군", 
+            "창녕군", "고성군", "남해군", "하동군", "산청군", 
+            "함양군", "거창군", "합천군"
+        ];
+
+        // 🌟 배민 스타일 등급 적용 (경남 18개에 맞춰 3단계 목표 조정)
+        const stageConfig = [
+            { level: 1, title: "알뜰배달", count: 5, time: 15, pass: 3, hints: 3 },
+            { level: 2, title: "한집배달", count: 10, time: 10, pass: 7, hints: 2 },
+            { level: 3, title: "번쩍배달", count: 18, time: 6, pass: 14, hints: 1 }
+        ];
+
+        let currentStageIdx = 0;
+        let mission = [], currentIdx = 0, stars = 0, timeLeft = 15, timerInterval;
+        let map, geoLayer;
+        let isPaused = false;
+        let isGamePausedByUser = false; 
+        let isSoundOn = true; 
+        let hintsLeft = 0; 
+        
+        // 폴리곤 스타일 (선택 시 배민 민트색으로 진하게 표시)
+        const styleNormal = { fillColor: "#2ac1bc", fillOpacity: 0.1, color: "#2ac1bc", weight: 2, dashArray: "4, 4" };
+        const styleCorrect = { fillColor: "#2ac1bc", fillOpacity: 0.85, color: "#222222", weight: 3, dashArray: "" };
+        const styleWrong = { fillColor: "#000000", fillOpacity: 0.7, color: "#ffffff", weight: 3, dashArray: "" };
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function toggleSound() {
+            isSoundOn = !isSoundOn;
+            const btn = document.getElementById('sound-btn');
+            btn.innerText = isSoundOn ? '🔊 켬' : '🔇 끔';
+            btn.style.color = isSoundOn ? 'var(--baemin-mint)' : '#64748b';
+        }
+
+        // 띠링, 삐빅 등 배달앱스러운 알림음
+        function playSound(type) {
+            if (!isSoundOn || !audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            const now = audioCtx.currentTime;
+            if (type === 'correct') { 
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880.00, now); // A5
+                osc.frequency.setValueAtTime(1046.50, now + 0.1); // C6
+                gainNode.gain.setValueAtTime(0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now); osc.stop(now + 0.3);
+            } else if (type === 'wrong') { 
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(250, now);
+                osc.frequency.exponentialRampToValueAtTime(150, now + 0.2);
+                gainNode.gain.setValueAtTime(0.2, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now); osc.stop(now + 0.2);
+            } else if (type === 'timeout') { 
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                gainNode.gain.setValueAtTime(0.3, now);
+                gainNode.gain.linearRampToValueAtTime(0.01, now + 0.4);
+                osc.start(now); osc.stop(now + 0.4);
+            } else if (type === 'start') { 
+                // "배달의민족 주문~" 톤과 유사한 멜로디
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(659.25, now);
+                osc.frequency.setValueAtTime(783.99, now + 0.15);
+                osc.frequency.setValueAtTime(1046.50, now + 0.3);
+                gainNode.gain.setValueAtTime(0.4, now);
+                gainNode.gain.linearRampToValueAtTime(0.01, now + 0.6);
+                osc.start(now); osc.stop(now + 0.6);
+            }
+        }
+
+        window.onload = async function() {
+            map = L.map('map', { zoomControl: false, attributionControl: false, dragging: true, touchZoom: true, doubleClickZoom: false });
+            
+            // 깔끔한 구글 지도 기반
+            L.tileLayer('https://mt1.google.com/vt/lyrs=m&hl=ko&x={x}&y={y}&z={z}', {
+                maxZoom: 18
+            }).addTo(map);
+
+            try {
+                const response = await fetch('https://raw.githubusercontent.com/southkorea/southkorea-maps/master/kostat/2013/json/skorea_municipalities_geo_simple.json');
+                const data = await response.json();
+                
+                // 경상남도 코드 38 필터링
+                const gyeongnamFeatures = data.features.filter(f => String(f.properties.code).startsWith("38"));
+                const cityGroups = {};
+                
+                gyeongnamFeatures.forEach(f => {
+                    let rawName = f.properties.name;
+                    let cleanName = "";
+                    
+                    // 창원시 구역들 통합 (의창구, 성산구 등)
+                    if (rawName.startsWith("창원시")) {
+                        cleanName = "창원시";
+                    } else {
+                        for (const city of gyeongnamCities) {
+                            if (rawName === city || rawName.endsWith(" " + city)) { 
+                                cleanName = city; 
+                                break; 
+                            }
+                        }
+                    }
+
+                    if (cleanName) {
+                        if (!cityGroups[cleanName]) cityGroups[cleanName] = [];
+                        cityGroups[cleanName].push(f);
+                    }
+                });
+
+                const mergedFeatures = Object.keys(cityGroups).map(name => {
+                    const features = cityGroups[name];
+                    let merged = features[0];
+                    if (features.length > 1) {
+                        for (let i = 1; i < features.length; i++) merged = turf.union(merged, features[i]);
+                    }
+                    merged.properties = { name: name };
+                    return merged;
+                });
+
+                geoLayer = L.geoJSON(mergedFeatures, {
+                    style: styleNormal,
+                    onEachFeature: (f, layer) => {
+                        const name = f.properties.name;
+                        layer.bindTooltip(name, { direction: 'center', className: 'hint-style', permanent: true, interactive: false });
+                        
+                        layer.on('click', (e) => {
+                            if (isPaused || isGamePausedByUser) return;
+                            isPaused = true;
+                            clearInterval(timerInterval);
+
+                            const isCorrect = (name === mission[currentIdx]);
+                            layer.setStyle(isCorrect ? styleCorrect : styleWrong);
+                            layer.bringToFront();
+
+                            if (isCorrect) {
+                                stars++;
+                                playSound('correct');
+                                showMsg("배달 완료! 🛵", "rgba(42, 193, 188, 0.95)", layer, true);
+                            } else {
+                                stars = Math.max(0, stars - 1);
+                                playSound('wrong');
+                                triggerShake();
+                                showMsg(`오배송!\n여기는 '${name}' 입니다`, "rgba(34, 34, 34, 0.95)", layer, false);
+                            }
+                        });
+                    }
+                }).addTo(map);
+
+                setTimeout(() => {
+                    map.invalidateSize();
+                    map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+                }, 100);
+                
+                window.addEventListener('resize', () => {
+                    if(geoLayer) {
+                        map.invalidateSize();
+                        map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+                    }
+                });
+                
+                const startBtn = document.getElementById('start-btn');
+                startBtn.disabled = false;
+                startBtn.innerText = "콜 수락하고 배달 시작!";
+                document.getElementById('hint-btn').disabled = false;
+
+            } catch (err) {
+                console.error(err);
+                document.getElementById('start-btn').innerText = "데이터 오류 (새로고침 요망)";
+            }
+        };
+
+        function togglePause() {
+            const stage = stageConfig[currentStageIdx];
+            if(mission.length === 0 || currentIdx >= stage.count) return;
+
+            isGamePausedByUser = !isGamePausedByUser;
+            const pauseBtn = document.getElementById('pause-btn');
+            
+            if (isGamePausedByUser) {
+                clearInterval(timerInterval);
+                document.getElementById('pause-overlay').style.display = 'block';
+                pauseBtn.innerText = "▶️ 재개";
+            } else {
+                document.getElementById('pause-overlay').style.display = 'none';
+                pauseBtn.innerText = "⏸️ 휴식";
+                if (!isPaused) resumeTimer();
+            }
+        }
+
+        function triggerShake() {
+            const app = document.getElementById('app');
+            app.classList.remove('shake-anim');
+            void app.offsetWidth;
+            app.classList.add('shake-anim');
+        }
+
+        function startGame() {
+            initAudio(); 
+            playSound('start');
+            document.getElementById('start-overlay').style.display = 'none';
+            document.getElementById('result-overlay').style.display = 'none';
+            document.getElementById('pause-btn').disabled = false;
+            
+            const stage = stageConfig[currentStageIdx];
+            
+            mission = [...gyeongnamCities].sort(() => Math.random() - 0.5).slice(0, stage.count);
+            currentIdx = 0;
+            stars = 0;
+            hintsLeft = stage.hints;
+            
+            const hBtn = document.getElementById('hint-btn');
+            hBtn.disabled = false;
+            hBtn.innerHTML = `길찾기 찬스 💡 (남음: ${hintsLeft})`;
+            hBtn.style.background = "var(--baemin-white)";
+            hBtn.style.color = "var(--baemin-black)";
+            
+            const starsContainer = document.getElementById('stars-container');
+            starsContainer.innerHTML = '';
+            for(let i = 0; i < stage.count; i++) {
+                starsContainer.innerHTML += '<span class="star">⭐</span>';
+            }
+
+            document.getElementById('waybill-title').innerText = `🧾 주문접수 (${stage.title})`;
+
+            updateUI();
+            startTimer();
+        }
+
+        function showMsg(text, bg, layer, isCorrect) {
+            const msgEl = document.getElementById('msg-overlay');
+            msgEl.innerText = text;
+            msgEl.style.background = bg;
+            
+            msgEl.className = '';
+            void msgEl.offsetWidth; 
+            msgEl.classList.add('pop');
+            if(isCorrect) msgEl.classList.add('bounce-anim');
+            
+            setTimeout(() => {
+                msgEl.classList.remove('pop');
+                msgEl.classList.remove('bounce-anim');
+                if (layer) geoLayer.resetStyle(layer);
+                isPaused = false;
+                if (!isGamePausedByUser) nextQuestion();
+            }, 1600); // 템포를 약간 빠르게 조정
+        }
+
+        function showHint() {
+            if (isPaused || isGamePausedByUser || mission.length === 0 || hintsLeft <= 0) return;
+            
+            hintsLeft--; 
+            const hBtn = document.getElementById('hint-btn');
+            hBtn.disabled = true;
+            hBtn.innerText = "길찾기 중...";
+            const tooltips = document.querySelectorAll('.hint-style');
+            tooltips.forEach(el => el.classList.add('show-now'));
+            
+            setTimeout(() => {
+                tooltips.forEach(el => el.classList.remove('show-now'));
+                
+                if (hintsLeft > 0) {
+                    hBtn.disabled = false;
+                    hBtn.innerHTML = `길찾기 찬스 💡 (남음: ${hintsLeft})`;
+                } else {
+                    hBtn.disabled = true;
+                    hBtn.innerHTML = "🚫 길찾기 찬스 소진";
+                    hBtn.style.background = "#e2e8f0";
+                    hBtn.style.color = "#94a3b8";
+                }
+            }, 2500);
+        }
+
+        function updateUI() {
+            const stage = stageConfig[currentStageIdx];
+            document.getElementById('target').innerText = mission[currentIdx] || "업무 종료";
+            document.getElementById('progress-text').innerText = `(${currentIdx + 1}/${stage.count})`;
+            const starSpans = document.querySelectorAll('.star');
+            starSpans.forEach((s, i) => {
+                if (i < stars) s.classList.add('filled');
+                else s.classList.remove('filled');
+            });
+        }
+
+        function startTimer() {
+            const stage = stageConfig[currentStageIdx];
+            timeLeft = stage.time;
+            resumeTimer();
+        }
+
+        function resumeTimer() {
+            const timerEl = document.getElementById('timer');
+            const timerBox = document.getElementById('timer-box');
+            timerEl.innerText = timeLeft;
+            timerBox.classList.remove('timer-warning');
+            
+            timerInterval = setInterval(() => {
+                if (isGamePausedByUser) return;
+
+                timeLeft--;
+                timerEl.innerText = timeLeft;
+                
+                if (timeLeft <= 5 && timeLeft > 0) {
+                    timerBox.classList.add('timer-warning');
+                    playSound('wrong'); 
+                }
+                
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    isPaused = true;
+                    stars = Math.max(0, stars - 1);
+                    playSound('timeout');
+                    triggerShake();
+                    showMsg("시간 초과!\n고객님이 화나셨어요 ⏰", "rgba(255, 94, 94, 0.95)", null, false);
+                }
+            }, 1000);
+        }
+
+        function nextQuestion() {
+            currentIdx++;
+            const stage = stageConfig[currentStageIdx];
+            if (currentIdx >= stage.count) {
+                showResult();
+            } else {
+                updateUI();
+                startTimer();
+            }
+        }
+
+        function showResult() {
+            playSound('start'); 
+            document.getElementById('pause-btn').disabled = true;
+            const overlay = document.getElementById('result-overlay');
+            const resBadge = document.getElementById('res-badge');
+            const resImg = document.getElementById('res-img');
+            const resLevel = document.getElementById('res-level');
+            const resScore = document.getElementById('res-score');
+            const resMessage = document.getElementById('res-message');
+            const actionBtn = document.getElementById('res-action-btn');
+            
+            const stage = stageConfig[currentStageIdx];
+            const isPass = stars >= stage.pass;
+            
+            resBadge.innerText = `[${stage.title}] 정산서`;
+            resScore.innerText = `리뷰 별점: ${stars}개 획득 (목표치: ${stage.pass}개)`;
+
+            if (isPass) {
+                if (currentStageIdx < 2) {
+                    resImg.innerText = "🛵";
+                    resLevel.innerText = "성공적인 배달!";
+                    resMessage.innerText = `리뷰가 아주 좋습니다!\n다음 [${stageConfig[currentStageIdx+1].title}] 등급으로 승급!`;
+                    actionBtn.innerText = "다음 등급 콜 받기";
+                } else {
+                    resImg.innerText = "👑";
+                    resLevel.innerText = "전설의 라이더!";
+                    resMessage.innerText = "우리가 어떤 민족입니까!\n경남 최고의 택민 라이더입니다!";
+                    actionBtn.innerText = "처음부터 다시하기";
+                }
+            } else {
+                resImg.innerText = "💦";
+                resLevel.innerText = "리뷰 테러...";
+                resMessage.innerText = `아쉽게도 별점이 부족합니다.\n다시 배달해 볼까요?`;
+                actionBtn.innerText = "다시 콜 받기";
+            }
+            
+            overlay.style.display = 'block';
+        }
+
+        function nextStageAction() {
+            const stage = stageConfig[currentStageIdx];
+            const isPass = stars >= stage.pass;
+
+            if (isPass) {
+                if (currentStageIdx < 2) {
+                    currentStageIdx++; 
+                } else {
+                    currentStageIdx = 0; 
+                }
+            }
+            startGame();
+        }
+    </script>
+</body>
+</html>
