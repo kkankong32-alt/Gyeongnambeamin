@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-DC7N6KQBG0"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-DC7N6KQBG0');
+    </script>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>🛵 경상남도 택배의 민족</title>
     <!-- 배달의민족 공식 서체 느낌을 내기 위한 '주아체'와 '도현체' 적용 -->
-    <link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Jua&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Jua&family=Nanum+Gothic:wght@400;500;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
@@ -153,7 +163,7 @@
             font-size: clamp(1.2rem, 4vw, 2rem);
             color: var(--baemin-black);
             margin-top: 5px;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             text-align: center;
         }
 
@@ -190,6 +200,60 @@
             border-radius: 30px; padding: 5px 12px; box-shadow: 0 3px 10px rgba(0,0,0,0.2);
         }
         .leaflet-tooltip.hint-style.show-now { visibility: visible !important; opacity: 1 !important; display: block !important; }
+
+        /* 제작자 표기 스타일 추가 */
+        .creator-credit {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            margin-top: 16px;
+            padding: 10px 18px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            background: rgba(5, 10, 20, 0.58);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            text-align: center;
+            color: #f7fbff;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+            font-family: 'Nanum Gothic', sans-serif;
+        }
+
+        .creator-name {
+            font-size: clamp(14px, 1.3vw, 18px);
+            line-height: 1.35;
+            font-weight: 700;
+            word-break: keep-all;
+        }
+
+        .creator-name strong {
+            font-weight: 850;
+        }
+
+        .creator-purpose {
+            font-size: clamp(12px, 1.05vw, 15px);
+            line-height: 1.4;
+            font-weight: 500;
+            color: rgba(235, 244, 255, 0.82);
+            word-break: keep-all;
+        }
+
+        @media (max-height: 600px) {
+            .creator-credit {
+                margin-top: 8px;
+                padding: 6px 14px;
+                gap: 2px;
+            }
+
+            .creator-name {
+                font-size: 13px;
+            }
+
+            .creator-purpose {
+                font-size: 11px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -265,6 +329,17 @@
                     
                     <button id="start-btn" class="btn-black" onclick="startGame()" disabled>오토바이 시동 거는 중...</button>
                 </div>
+
+                <!-- 제작자 표기 추가 -->
+                <div class="creator-credit" aria-label="제작자 안내">
+                    <div class="creator-name">
+                        기획·제작: <strong>쓰로인훈쌤 김종훈</strong>
+                    </div>
+                    <div class="creator-purpose">
+                        초등 수업을 위한 무료 교육 콘텐츠
+                    </div>
+                </div>
+
             </div>
         </div>
 
